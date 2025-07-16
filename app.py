@@ -12,8 +12,7 @@ import os
 from pathlib import Path
 from difflib import SequenceMatcher
 
-openai.api_key = "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"
-EXCEL_FILE = "contacts.xlsx"
+openai.api_key = os.getenv("OPENAI_API_KEY")EXCEL_FILE = "contacts.xlsx"
 
 # --- Load and Save Excel ---
 def load_excel():
