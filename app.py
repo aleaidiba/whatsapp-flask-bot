@@ -38,14 +38,9 @@ def insert_contact(df, company, name, mobile, email):
     save_excel(df)
     return True
 
-@app.route("/", methods=["GET"])
-def home():
-    return "Contact Assistant Webhook is running."
-
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    data = request.json
-    message = data.get("message", "").strip().lower()
+    message = request.form.get("Body", "").strip().lower()
     df = load_excel()
 
     if message.startswith("أضف "):
@@ -70,6 +65,7 @@ def webhook():
 
     else:
         return jsonify({"reply": "أرسل 'أضف' لإضافة جهة أو 'ابحث' للبحث عن جهة."})
+
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
