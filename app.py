@@ -2,7 +2,7 @@ from flask import Flask, request, Response
 import pandas as pd
 import os
 
-EXCEL_FILE = ""C:\Users\badre\OneDrive\المستندات\GitHub\whatsapp-flask-bot\contacts.xlsx""
+EXCEL_FILE = "contacts.xlsx"
 app = Flask(__name__)
 
 # Load contacts
