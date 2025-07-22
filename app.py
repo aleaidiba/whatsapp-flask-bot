@@ -1,70 +1,53 @@
 from flask import Flask, request, Response
 import pandas as pd
-import os
-import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-
-EXCEL_SHEET_NAME = "Contacts"  # اسم ملف Google Sheet
+import os
 
 app = Flask(__name__)
 
-# الاتصال بـ Google Sheets باستخدام GOOGLE_CREDENTIALS من المتغير البيئي
-def connect_to_sheet():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/spreadsheets",
-        "https://www.googleapis.com/auth/drive"
-    ]
-    creds_json = os.getenv("GOOGLE_CREDENTIALS")
-    creds_dict = json.loads(creds_json)
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    client = gspread.authorize(creds)
-    sheet = client.open(EXCEL_SHEET_NAME).sheet1
-    return sheet
+# إعداد Google Sheets
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+CREDS_JSON = os.environ.get("GOOGLE_CREDENTIALS")
 
-# تحميل البيانات
-import time
+# تحويل JSON من string إلى ملف مؤقت
+import json, tempfile
+with tempfile.NamedTemporaryFile(delete=False, mode='w+', suffix='.json') as tmp:
+    tmp.write(CREDS_JSON)
+    CREDENTIALS_FILE = tmp.name
+
+SPREADSHEET_NAME = "contacts"  # تأكد أن هذا الاسم يطابق اسم Google Sheet
+
+def connect_to_sheet():
+    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
+    client = gspread.authorize(creds)
+    sheet = client.open(SPREADSHEET_NAME).sheet1
+    return sheet
 
 def load_excel():
     sheet = connect_to_sheet()
-    time.sleep(2)  # تأخير بسيط لضمان التزامن
     records = sheet.get_all_records()
     return pd.DataFrame(records)
 
+def save_to_sheet(company, name, mobile, email):
+    sheet = connect_to_sheet()
+    sheet.append_row([company, name, mobile, email])
 
-# إدخال جهة اتصال جديدة
 def insert_contact(df, company, name, mobile, email):
-    try:
-        sheet = connect_to_sheet()
-        mobile = str(mobile or "")
-        email = str(email or "")
+    mobile = str(mobile or "")
+    email = str(email or "")
 
-        duplicate = df[
-            (df["name"].str.lower() == name.lower()) |
-            (df["email"].str.lower() == email.lower()) |
-            (df["mobile"].astype(str) == mobile)
-        ]
-        if not duplicate.empty:
-            print("⚠️ جهة الاتصال مكررة")
-            return False
-
-        sheet.append_row([company, name, mobile, email])
-        print("✅ تم إدخال جهة الاتصال في Google Sheets")
-        return True
-    except Exception as e:
-        print(f"❌ خطأ أثناء الإضافة: {e}")
+    duplicate = df[
+        (df["name"].str.lower() == name.lower()) |
+        (df["email"].str.lower() == email.lower()) |
+        (df["mobile"].astype(str) == mobile)
+    ]
+    if not duplicate.empty:
         return False
 
-# رد Twilio بصيغة XML
-def twilio_reply(message_text):
-    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
-<Response>
-    <Message>{message_text}</Message>
-</Response>"""
-    return Response(xml, mimetype='application/xml')
+    save_to_sheet(company, name, mobile, email)
+    return True
 
-# نقطة الدخول Webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
     message = request.form.get("Body", "").strip().lower()
@@ -79,30 +62,20 @@ def webhook():
             company, name, mobile, email = parts
             added = insert_contact(df, company, name, mobile, email)
             return twilio_reply("✅ تم الإضافة" if added else "⚠️ موجود مسبقاً")
-        except Exception as e:
-            return twilio_reply(f"❌ خطأ أثناء الإضافة: {str(e)}")
+        except:
+            return twilio_reply("❌ حدث خطأ. تأكد من التنسيق: أضف الشركة, الاسم, الجوال, الإيميل")
 
-    elif message.startswith("ابحث"):
+    elif message.startswith("ابحث "):
         try:
-            parts = message.split(" ", 1)
-            if len(parts) < 2 or not parts[1].strip():
-                return twilio_reply("❌ اكتب اسم الشركة بعد كلمة 'ابحث'. مثل: ابحث شركة الاختبار")
-
-            search_term = parts[1].strip().lower()
-            df["company_name"] = df["company_name"].fillna('').astype(str).str.lower().str.strip()
-            results = df[df["company_name"].str.contains(search_term)]
-
+            company = message.replace("ابحث", "").strip().lower()
+            df.dropna(subset=["company_name"], inplace=True)
+            results = df[df["company_name"].str.lower().str.contains(company)]
             if results.empty:
-                return twilio_reply("❌ لا توجد نتائج مطابقة.")
-
-            reply = "\n".join([
-                f"{row['name']} - {row['mobile']} - {row['email']}"
-                for _, row in results.iterrows()
-            ])
-            return twilio_reply(f"📇 نتائج البحث:\n{reply}")
-
+                return twilio_reply("❌ لا توجد نتائج.")
+            reply = "\n".join([f"{row['name']} - {row['mobile']} - {row['email']}" for _, row in results.iterrows()])
+            return twilio_reply(f"🗂️ نتائج البحث:\n{reply}")
         except Exception as e:
-            return twilio_reply(f"❌ خطأ أثناء البحث: {str(e)}")
+            return twilio_reply(f"⚠️ خطأ في البحث: {e}")
 
     elif "مساعدة" in message or "help" in message:
         return twilio_reply("🛠️ الأوامر المتاحة:\n- أضف الشركة, الاسم, الجوال, الإيميل\n- ابحث اسم_الشركة")
@@ -110,11 +83,12 @@ def webhook():
     else:
         return twilio_reply("❓ لم أفهم. أرسل 'مساعدة' لرؤية الأوامر المتاحة.")
 
-# صفحة رئيسية للفحص
-@app.route("/", methods=["GET"])
-def home():
-    return "✅ WhatsApp Flask Bot + Google Sheets يعمل باستخدام GOOGLE_CREDENTIALS"
+def twilio_reply(message_text):
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Message>{message_text}</Message>
+</Response>"""
+    return Response(xml, mimetype='application/xml')
 
-# تشغيل التطبيق
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
