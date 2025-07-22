@@ -29,20 +29,26 @@ def load_excel():
 
 # إضافة جهة اتصال
 def insert_contact(df, company, name, mobile, email):
-    sheet = connect_to_sheet()
-    mobile = str(mobile or "")
-    email = str(email or "")
+    try:
+        sheet = connect_to_sheet()
+        mobile = str(mobile or "")
+        email = str(email or "")
 
-    duplicate = df[
-        (df["name"].str.lower() == name.lower()) |
-        (df["email"].str.lower() == email.lower()) |
-        (df["mobile"].astype(str) == mobile)
-    ]
-    if not duplicate.empty:
+        duplicate = df[
+            (df["name"].str.lower() == name.lower()) |
+            (df["email"].str.lower() == email.lower()) |
+            (df["mobile"].astype(str) == mobile)
+        ]
+        if not duplicate.empty:
+            print("⚠️ جهة الاتصال مكررة")
+            return False
+
+        sheet.append_row([company, name, mobile, email])
+        print("✅ تمت الإضافة إلى Google Sheets")
+        return True
+    except Exception as e:
+        print(f"❌ خطأ أثناء الإضافة: {e}")
         return False
-
-    sheet.append_row([company, name, mobile, email])
-    return True
 
 # رد XML لتويليو
 def twilio_reply(message_text):
@@ -78,9 +84,8 @@ def webhook():
 
             search_term = parts[1].strip().lower()
 
-            # تنظيف القيم الفارغة + تجهيز العمود للبحث
+            # تنظيف العمود قبل البحث لتجنب NaN
             df["company_name"] = df["company_name"].fillna('').astype(str).str.lower().str.strip()
-
             results = df[df["company_name"].str.contains(search_term)]
 
             if results.empty:
@@ -101,10 +106,10 @@ def webhook():
     else:
         return twilio_reply("❓ لم أفهم. أرسل 'مساعدة' لرؤية الأوامر المتاحة.")
 
-# صفحة رئيسية للتجربة
+# اختبار الاتصال
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ WhatsApp Flask Bot + Google Sheets يعمل بنجاح"
+    return "✅ WhatsApp Flask Bot + Google Sheets يعمل"
 
 # تشغيل التطبيق
 if __name__ == "__main__":
