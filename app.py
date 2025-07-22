@@ -24,10 +24,14 @@ def connect_to_sheet():
     return sheet
 
 # تحميل البيانات
+import time
+
 def load_excel():
     sheet = connect_to_sheet()
+    time.sleep(2)  # تأخير بسيط لضمان التزامن
     records = sheet.get_all_records()
     return pd.DataFrame(records)
+
 
 # إدخال جهة اتصال جديدة
 def insert_contact(df, company, name, mobile, email):
