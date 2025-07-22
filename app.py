@@ -4,8 +4,8 @@ import os
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-EXCEL_SHEET_NAME = "Contacts"
-CREDENTIALS_FILE = "credentials.json"
+EXCEL_SHEET_NAME = "Contacts"         # اسم Google Sheet
+CREDENTIALS_FILE = "credentials.json" # اسم ملف الخدمة
 
 app = Flask(__name__)
 
@@ -84,7 +84,7 @@ def webhook():
 
             search_term = parts[1].strip().lower()
 
-            # تنظيف العمود قبل البحث لتجنب NaN
+            # ✅ تصحيح NaN قبل البحث
             df["company_name"] = df["company_name"].fillna('').astype(str).str.lower().str.strip()
             results = df[df["company_name"].str.contains(search_term)]
 
@@ -106,10 +106,10 @@ def webhook():
     else:
         return twilio_reply("❓ لم أفهم. أرسل 'مساعدة' لرؤية الأوامر المتاحة.")
 
-# اختبار الاتصال
+# صفحة اختبار
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ WhatsApp Flask Bot + Google Sheets يعمل"
+    return "✅ WhatsApp Flask Bot + Google Sheets يعمل بنجاح"
 
 # تشغيل التطبيق
 if __name__ == "__main__":
