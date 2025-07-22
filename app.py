@@ -57,24 +57,29 @@ def webhook():
         except:
             return twilio_reply("❌ حدث خطأ. تأكد من التنسيق: أضف الشركة, الاسم, الجوال, الإيميل")
 
-    elif message.startswith("ابحث "):
-        try:
-            search_term = message.split(" ", 1)[1].strip().lower()
-            df = df.dropna(subset=["company_name"])  # إزالة الصفوف بدون اسم شركة
-            df["company_name"] = df["company_name"].astype(str).str.lower().str.strip()
+  elif message.startswith("ابحث"):
+    try:
+        parts = message.split(" ", 1)
+        if len(parts) < 2 or not parts[1].strip():
+            return twilio_reply("❌ اكتب اسم الشركة بعد كلمة 'ابحث'. مثل: ابحث شركة الاختبار")
+        
+        search_term = parts[1].strip().lower()
+        df = df.dropna(subset=["company_name"])
+        df["company_name"] = df["company_name"].astype(str).str.lower().str.strip()
 
-            results = df[df["company_name"].str.contains(search_term)]
-            if results.empty:
-                return twilio_reply("❌ لا توجد نتائج مطابقة.")
+        results = df[df["company_name"].str.contains(search_term)]
+        if results.empty:
+            return twilio_reply("❌ لا توجد نتائج مطابقة.")
 
-            reply = "\n".join([
-                f"{row['name']} - {row['mobile']} - {row['email']}"
-                for _, row in results.iterrows()
-            ])
-            return twilio_reply(f"📇 نتائج البحث:\n{reply}")
+        reply = "\n".join([
+            f"{row['name']} - {row['mobile']} - {row['email']}"
+            for _, row in results.iterrows()
+        ])
+        return twilio_reply(f"📇 نتائج البحث:\n{reply}")
+        
+    except Exception as e:
+        return twilio_reply(f"❌ حدث خطأ غير متوقع: {str(e)}")
 
-        except Exception as e:
-            return twilio_reply(f"❌ تأكد من كتابة الأمر بالشكل: ابحث اسم_الشركة\n🔧 الخطأ: {str(e)}")
 
 
     elif "مساعدة" in message or "help" in message:
