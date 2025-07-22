@@ -58,12 +58,18 @@ def webhook():
             return twilio_reply("❌ حدث خطأ. تأكد من التنسيق: أضف الشركة, الاسم, الجوال, الإيميل")
 
     elif message.startswith("ابحث "):
-        company = message.replace("ابحث", "").strip().lower()
-        results = df[df["company_name"].str.lower().str.contains(company)]
-        if results.empty:
-            return twilio_reply("❌ لا توجد نتائج.")
-        reply = "\n".join([f"{row['name']} - {row['mobile']} - {row['email']}" for _, row in results.iterrows()])
-        return twilio_reply(f"📇 نتائج البحث:\n{reply}")
+        try:
+            company = message.split(" ", 1)[1].strip().lower()
+            results = df[df["company_name"].str.lower().str.contains(company)]
+            if results.empty:
+                return twilio_reply("❌ لا توجد نتائج.")
+            reply = "\n".join([
+                f"{row['name']} - {row['mobile']} - {row['email']}"
+                for _, row in results.iterrows()
+            ])
+            return twilio_reply(f"📇 نتائج البحث:\n{reply}")
+        except:
+            return twilio_reply("❌ تأكد من كتابة الأمر بالشكل: ابحث اسم_الشركة")
 
     elif "مساعدة" in message or "help" in message:
         return twilio_reply("🛠️ الأوامر المتاحة:\n- أضف الشركة, الاسم, الجوال, الإيميل\n- ابحث اسم_الشركة")
