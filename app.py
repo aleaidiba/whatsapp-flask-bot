@@ -1,33 +1,35 @@
 from flask import Flask, request, Response
 import pandas as pd
 import os
+import json
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-EXCEL_SHEET_NAME = "Contacts"         # اسم Google Sheet
-CREDENTIALS_FILE = "credentials.json" # اسم ملف الخدمة
+EXCEL_SHEET_NAME = "Contacts"  # اسم ملف Google Sheet
 
 app = Flask(__name__)
 
-# الاتصال بـ Google Sheets
+# الاتصال بـ Google Sheets باستخدام GOOGLE_CREDENTIALS من المتغير البيئي
 def connect_to_sheet():
     scope = [
         "https://spreadsheets.google.com/feeds",
         "https://www.googleapis.com/auth/spreadsheets",
         "https://www.googleapis.com/auth/drive"
     ]
-    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
+    creds_json = os.getenv("GOOGLE_CREDENTIALS")
+    creds_dict = json.loads(creds_json)
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
     client = gspread.authorize(creds)
     sheet = client.open(EXCEL_SHEET_NAME).sheet1
     return sheet
 
-# تحميل البيانات كـ DataFrame
+# تحميل البيانات
 def load_excel():
     sheet = connect_to_sheet()
     records = sheet.get_all_records()
     return pd.DataFrame(records)
 
-# إضافة جهة اتصال
+# إدخال جهة اتصال جديدة
 def insert_contact(df, company, name, mobile, email):
     try:
         sheet = connect_to_sheet()
@@ -44,13 +46,13 @@ def insert_contact(df, company, name, mobile, email):
             return False
 
         sheet.append_row([company, name, mobile, email])
-        print("✅ تمت الإضافة إلى Google Sheets")
+        print("✅ تم إدخال جهة الاتصال في Google Sheets")
         return True
     except Exception as e:
         print(f"❌ خطأ أثناء الإضافة: {e}")
         return False
 
-# رد XML لتويليو
+# رد Twilio بصيغة XML
 def twilio_reply(message_text):
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -58,7 +60,7 @@ def twilio_reply(message_text):
 </Response>"""
     return Response(xml, mimetype='application/xml')
 
-# Webhook لتلقي رسائل WhatsApp
+# نقطة الدخول Webhook
 @app.route("/webhook", methods=["POST"])
 def webhook():
     message = request.form.get("Body", "").strip().lower()
@@ -74,7 +76,7 @@ def webhook():
             added = insert_contact(df, company, name, mobile, email)
             return twilio_reply("✅ تم الإضافة" if added else "⚠️ موجود مسبقاً")
         except Exception as e:
-            return twilio_reply(f"❌ حدث خطأ: {str(e)}")
+            return twilio_reply(f"❌ خطأ أثناء الإضافة: {str(e)}")
 
     elif message.startswith("ابحث"):
         try:
@@ -83,8 +85,6 @@ def webhook():
                 return twilio_reply("❌ اكتب اسم الشركة بعد كلمة 'ابحث'. مثل: ابحث شركة الاختبار")
 
             search_term = parts[1].strip().lower()
-
-            # ✅ تصحيح NaN قبل البحث
             df["company_name"] = df["company_name"].fillna('').astype(str).str.lower().str.strip()
             results = df[df["company_name"].str.contains(search_term)]
 
@@ -106,10 +106,10 @@ def webhook():
     else:
         return twilio_reply("❓ لم أفهم. أرسل 'مساعدة' لرؤية الأوامر المتاحة.")
 
-# صفحة اختبار
+# صفحة رئيسية للفحص
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ WhatsApp Flask Bot + Google Sheets يعمل بنجاح"
+    return "✅ WhatsApp Flask Bot + Google Sheets يعمل باستخدام GOOGLE_CREDENTIALS"
 
 # تشغيل التطبيق
 if __name__ == "__main__":
