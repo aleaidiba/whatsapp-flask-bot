@@ -1,23 +1,35 @@
 from flask import Flask, request, Response
 import pandas as pd
 import os
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 
-EXCEL_FILE = "contacts.xlsx"
+EXCEL_SHEET_NAME = "Contacts"
+CREDENTIALS_FILE = "credentials.json"
+
 app = Flask(__name__)
 
-# Load contacts
+# الاتصال بـ Google Sheets
+def connect_to_sheet():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive"
+    ]
+    creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, scope)
+    client = gspread.authorize(creds)
+    sheet = client.open(EXCEL_SHEET_NAME).sheet1
+    return sheet
+
+# تحميل البيانات كـ DataFrame
 def load_excel():
-    try:
-        return pd.read_excel(EXCEL_FILE)
-    except:
-        return pd.DataFrame(columns=["company_name", "name", "mobile", "email"])
+    sheet = connect_to_sheet()
+    records = sheet.get_all_records()
+    return pd.DataFrame(records)
 
-# Save contacts
-def save_excel(df):
-    df.to_excel(EXCEL_FILE, index=False)
-
-# Insert new contact
+# إضافة جهة اتصال
 def insert_contact(df, company, name, mobile, email):
+    sheet = connect_to_sheet()
     mobile = str(mobile or "")
     email = str(email or "")
 
@@ -29,17 +41,10 @@ def insert_contact(df, company, name, mobile, email):
     if not duplicate.empty:
         return False
 
-    new_row = {
-        "company_name": company,
-        "name": name,
-        "mobile": mobile,
-        "email": email
-    }
-    df = pd.concat([df, pd.DataFrame([new_row])], ignore_index=True)
-    save_excel(df)
+    sheet.append_row([company, name, mobile, email])
     return True
 
-# Twilio-compatible XML reply
+# رد XML لتويليو
 def twilio_reply(message_text):
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -47,7 +52,7 @@ def twilio_reply(message_text):
 </Response>"""
     return Response(xml, mimetype='application/xml')
 
-# Webhook endpoint
+# Webhook لتلقي رسائل WhatsApp
 @app.route("/webhook", methods=["POST"])
 def webhook():
     message = request.form.get("Body", "").strip().lower()
@@ -62,8 +67,8 @@ def webhook():
             company, name, mobile, email = parts
             added = insert_contact(df, company, name, mobile, email)
             return twilio_reply("✅ تم الإضافة" if added else "⚠️ موجود مسبقاً")
-        except:
-            return twilio_reply("❌ حدث خطأ. تأكد من التنسيق: أضف الشركة, الاسم, الجوال, الإيميل")
+        except Exception as e:
+            return twilio_reply(f"❌ حدث خطأ: {str(e)}")
 
     elif message.startswith("ابحث"):
         try:
@@ -72,13 +77,11 @@ def webhook():
                 return twilio_reply("❌ اكتب اسم الشركة بعد كلمة 'ابحث'. مثل: ابحث شركة الاختبار")
 
             search_term = parts[1].strip().lower()
-            df = df.dropna(subset=["company_name"])
-            df["company_name"] = df["company_name"].astype(str).str.lower().str.strip()
 
-            print("🔍 البحث عن:", search_term)
-            results = df[df["company_name"] == search_term]  # تطابق كامل
+            # تنظيف القيم الفارغة + تجهيز العمود للبحث
+            df["company_name"] = df["company_name"].fillna('').astype(str).str.lower().str.strip()
 
-            print("📦 النتائج:", results.to_dict())
+            results = df[df["company_name"].str.contains(search_term)]
 
             if results.empty:
                 return twilio_reply("❌ لا توجد نتائج مطابقة.")
@@ -90,7 +93,7 @@ def webhook():
             return twilio_reply(f"📇 نتائج البحث:\n{reply}")
 
         except Exception as e:
-            return twilio_reply(f"❌ حدث خطأ غير متوقع: {str(e)}")
+            return twilio_reply(f"❌ خطأ أثناء البحث: {str(e)}")
 
     elif "مساعدة" in message or "help" in message:
         return twilio_reply("🛠️ الأوامر المتاحة:\n- أضف الشركة, الاسم, الجوال, الإيميل\n- ابحث اسم_الشركة")
@@ -98,11 +101,11 @@ def webhook():
     else:
         return twilio_reply("❓ لم أفهم. أرسل 'مساعدة' لرؤية الأوامر المتاحة.")
 
-# Home page for testing
+# صفحة رئيسية للتجربة
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ WhatsApp Flask Bot is running"
+    return "✅ WhatsApp Flask Bot + Google Sheets يعمل بنجاح"
 
-# Start the app
+# تشغيل التطبيق
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
