@@ -1,69 +1,58 @@
 from flask import Flask, request, Response
 import pandas as pd
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import os
 import json
 import tempfile
-from oauth2client.service_account import ServiceAccountCredentials
 
 app = Flask(__name__)
 
-# إعدادات Google Sheets
-SCOPE = [
-    "https://spreadsheets.google.com/feeds",
-    "https://www.googleapis.com/auth/drive"
-]
+# إعداد Google Sheets
+SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 CREDS_JSON = os.environ.get("GOOGLE_CREDENTIALS")
 
-# حفظ ملف JSON مؤقتًا
+# تحويل JSON من string إلى ملف مؤقت
 with tempfile.NamedTemporaryFile(delete=False, mode='w+', suffix='.json') as tmp:
     tmp.write(CREDS_JSON)
     CREDENTIALS_FILE = tmp.name
 
-SPREADSHEET_NAME = "contacts"  # تأكدي من تطابق الاسم مع Google Sheet
+SPREADSHEET_NAME = "contacts"  # تأكد أن الاسم يطابق ملف Google Sheets
 
-# الاتصال بـ Google Sheet
 def connect_to_sheet():
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
     client = gspread.authorize(creds)
     sheet = client.open(SPREADSHEET_NAME).sheet1
     return sheet
 
-# تحميل البيانات من الشيت
 def load_excel():
     sheet = connect_to_sheet()
     records = sheet.get_all_records()
     return pd.DataFrame(records)
 
-# حفظ صف جديد
 def save_to_sheet(company, name, mobile, email):
     sheet = connect_to_sheet()
     sheet.append_row([company, name, mobile, email])
 
-# إدخال جهة اتصال جديدة
 def insert_contact(df, company, name, mobile, email):
     mobile = str(mobile or "")
     email = str(email or "")
 
-    duplicate = df[
-        (df["name"].str.lower() == name.lower()) |
-        (df["email"].str.lower() == email.lower()) |
-        (df["mobile"].astype(str) == mobile)
-    ]
-    if not duplicate.empty:
-        return False
+    if not df.empty:
+        duplicate = df[
+            (df["name"].str.lower() == name.lower()) |
+            (df["email"].str.lower() == email.lower()) |
+            (df["mobile"].astype(str) == mobile)
+        ]
+        if not duplicate.empty:
+            return False
 
     save_to_sheet(company, name, mobile, email)
     return True
 
-# الرد على رسائل واتساب
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    message = request.form.get("Body", "").strip()
-
-    if not message:
-        return twilio_reply("❌ لم يتم استقبال أي رسالة.")
-
+    message = request.form.get("Body", "").strip().lower()
     df = load_excel()
 
     if message.startswith("أضف "):
@@ -86,7 +75,7 @@ def webhook():
             if results.empty:
                 return twilio_reply("❌ لا توجد نتائج.")
             reply = "\n".join([f"{row['name']} - {row['mobile']} - {row['email']}" for _, row in results.iterrows()])
-            return twilio_reply(f"📇 نتائج البحث:\n{reply}")
+            return twilio_reply(f"🗂️ نتائج البحث:\n{reply}")
         except Exception as e:
             return twilio_reply(f"⚠️ خطأ في البحث: {e}")
 
@@ -96,7 +85,6 @@ def webhook():
     else:
         return twilio_reply("❓ لم أفهم. أرسل 'مساعدة' لرؤية الأوامر المتاحة.")
 
-# تنسيق الرد لتويليو (Twilio)
 def twilio_reply(message_text):
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -104,6 +92,5 @@ def twilio_reply(message_text):
 </Response>"""
     return Response(xml, mimetype='application/xml')
 
-# تشغيل التطبيق
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
