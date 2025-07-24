@@ -17,7 +17,7 @@ with tempfile.NamedTemporaryFile(delete=False, mode='w+', suffix='.json') as tmp
     tmp.write(CREDS_JSON)
     CREDENTIALS_FILE = tmp.name
 
-SPREADSHEET_NAME = "contacts"  # تأكد أن الاسم يطابق ملف Google Sheets
+SPREADSHEET_NAME = "contacts"  # تأكد أن اسم الجدول يطابق الاسم في Google Sheets
 
 def connect_to_sheet():
     creds = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
@@ -38,21 +38,23 @@ def insert_contact(df, company, name, mobile, email):
     mobile = str(mobile or "")
     email = str(email or "")
 
-    if not df.empty:
-        duplicate = df[
-            (df["name"].str.lower() == name.lower()) |
-            (df["email"].str.lower() == email.lower()) |
-            (df["mobile"].astype(str) == mobile)
-        ]
-        if not duplicate.empty:
-            return False
+    duplicate = df[
+        (df["name"].str.lower() == name.lower()) |
+        (df["email"].str.lower() == email.lower()) |
+        (df["mobile"].astype(str) == mobile)
+    ]
+    if not duplicate.empty:
+        return False
 
     save_to_sheet(company, name, mobile, email)
     return True
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    message = request.form.get("Body", "").strip().lower()
+    if request.method == "GET":
+        return "✅ Webhook is reachable."
+
+    message = request.form.get("Body", "").strip()
     df = load_excel()
 
     if message.startswith("أضف "):
@@ -74,7 +76,10 @@ def webhook():
             results = df[df["company_name"].str.lower().str.contains(company)]
             if results.empty:
                 return twilio_reply("❌ لا توجد نتائج.")
-            reply = "\n".join([f"{row['name']} - {row['mobile']} - {row['email']}" for _, row in results.iterrows()])
+            reply = "\n".join([
+                f"{row['name']} - {row['mobile']} - {row['email']}"
+                for _, row in results.iterrows()
+            ])
             return twilio_reply(f"🗂️ نتائج البحث:\n{reply}")
         except Exception as e:
             return twilio_reply(f"⚠️ خطأ في البحث: {e}")
